@@ -7,3 +7,5 @@ Just connect TX/RX/Gnd to your Arduino board and use your ESP8266 as universal g
 
 * Serial baund rate configuration
 * Usage samples
+
+http://c2n.me/3D33b1t.jpg
