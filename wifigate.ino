@@ -9,6 +9,8 @@
 
 const int EEPROM_HTTP_SERVER=50;
 const int EEPROM_DATA_FILTER=100;
+const int EEPROM_BASE_URL=150;
+const int EEPROM_SERIAL_RATE=200;
 const int EEPROM_STRING_MAX=50;
 
 #include <Ticker.h>
@@ -17,6 +19,12 @@ ESP8266WebServer server(80);
 
 String http_server;
 String data_filter;
+String base_url;
+int serial_rate = 0;
+
+const int RATES_TOTAL = 8;
+int serial_rates[RATES_TOTAL] = {9600,14400,19200,28800,38400,56000,57600,115200};
+
 String latestSerialData;
 
 const byte numChars = 200;
@@ -65,8 +73,23 @@ void handleRoot() {
   message += "</span>\n";
   message += "<h2>Settings</h2><form action='/save' method='get'>Serial data hook URL:<br/><input type='text' name='server' value='";
   message += http_server;
-  message += "' size='60'><br/>Serial data filter:<br/><input type='text' name='filter' value='";
+  message += "' size='60'><br/>Serial rate:<br/><select name='serial'>";
+     for (int i = 0; i < RATES_TOTAL; ++i)
+            {
+              message += "<option value='";
+              message += i;
+              message += "'";
+              if (i==serial_rate) {
+                message += " selected";
+              }
+              message += ">";
+              message += serial_rates[i];
+              message += "</option>";
+            }     
+  message += "</select><br/>Serial data filter (optional):<br/><input type='text' name='filter' value='";
   message += data_filter;  
+  message += "' size='60'><br/>Base URL (optional):<br/><input type='text' name='base' value='";
+  message += base_url;    
   message += "'size='60'><br/><input type='submit' value='Save settings'></form>";
   message += "</p>";  
   message += "<script language='javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js'></script>";  
@@ -118,6 +141,25 @@ void writeStringEEPROM(String str, int startIdx) {
           EEPROM.commit();  
 }
 
+//This function will write a 2 byte integer to the eeprom at the specified address and address + 1
+void writeIntEEPROM(unsigned int p_value, int p_address)
+      {
+      byte lowByte = ((p_value >> 0) & 0xFF);
+      byte highByte = ((p_value >> 8) & 0xFF);
+
+      EEPROM.write(p_address, lowByte);
+      EEPROM.write(p_address + 1, highByte);
+      }
+
+//This function will read a 2 byte integer from the eeprom at the specified address and address + 1
+unsigned int readIntEEPROM(int p_address)
+      {
+      byte lowByte = EEPROM.read(p_address);
+      byte highByte = EEPROM.read(p_address + 1);
+
+      return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
+      }
+
 void handleUpdateConfig() {
   for (uint8_t i=0; i<server.args(); i++){
     if (server.argName(i)=="server") {
@@ -126,11 +168,23 @@ void handleUpdateConfig() {
     if (server.argName(i)=="filter") {
       data_filter=server.arg(i);
     }    
+    if (server.argName(i)=="base") {
+      base_url=server.arg(i);
+    }
+    if (server.argName(i)=="serial") {
+      if (server.arg(i).toInt()!=serial_rate) {
+       serial_rate=server.arg(i).toInt();
+       Serial.begin(serial_rates[serial_rate]);
+      }
+    }
   }
   String message = "<html><body><script language='javascript'>tm=setTimeout(\"window.location.href='/';\",2000);</script>Data saved!</body></html>";  
 
   writeStringEEPROM(data_filter,EEPROM_DATA_FILTER);
   writeStringEEPROM(http_server,EEPROM_HTTP_SERVER);
+  writeStringEEPROM(base_url, EEPROM_BASE_URL);
+  writeIntEEPROM(serial_rate,EEPROM_SERIAL_RATE);
+  
   
   server.send(200, "text/html", message);
 }
@@ -200,8 +254,14 @@ void setup() {
 
     data_filter=readStringEEPROM(EEPROM_DATA_FILTER);
     http_server=readStringEEPROM(EEPROM_HTTP_SERVER);
+    base_url=readStringEEPROM(EEPROM_BASE_URL);
+    serial_rate=readIntEEPROM(EEPROM_SERIAL_RATE);
+
+    if ((serial_rates[serial_rate]!=9600) && (serial_rate<RATES_TOTAL)) {
+     Serial.begin(serial_rates[serial_rate]);      
+    }
     
-    latestSerialData = "None";
+    latestSerialData = "n/a";
 
   server.on("/", handleRoot);
   server.on("/send", handleSend);
@@ -254,6 +314,15 @@ void showNewData() {
     http.begin(url);
     int httpCode = http.GET();
     http.end();
+  } else if (latestSerialData.indexOf("GET /")>=0) {
+    HTTPClient http;
+    String url = latestSerialData;
+    url.replace("GET /","");
+    url.replace(" HTTP/1.0","");
+    url = base_url + url;
+    http.begin(url);
+    int httpCode = http.GET();
+    http.end();    
   }
   newData = false;
  }
